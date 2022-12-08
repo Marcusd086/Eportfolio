@@ -1,0 +1,223 @@
+---
+title: "Analysis of Suicide Rates 1985-2015"
+subtitle: "CSC 1610"
+date: "4/26/21"
+author: "Marcus DeKnatel"
+output: pdf_document
+---
+Introduction:
+Investigating the relation between suicide rates between groups of individuals and attempting to determine how it is effected by external factors such as employment.
+
+Exploratory Anaysis Inquiries:
+Which group of people contains the highest suicide rates?
+Is there a correlation between unemployment and suicide?
+Could influxes of suicides be explained by large events?
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r data}
+library(tidyverse)  
+library(modelr)
+library(forcats)
+library(splines)
+```
+```{r data1}
+suicideWorld <- read_csv("suicide.csv")
+
+#Filtered so that I remove any data not the United States
+suicide5 <- suicideWorld %>%
+  filter(country == "United States")  
+
+#Data is divided by agegroup, year, and sex
+#By grouping by year and sex I can see broader trends over time
+#Using the sum function I can total the suicides for each gender 
+#SOP finds the suicide rate for each population
+suicide <-suicide5 %>%
+  group_by(year,sex)  %>%
+  mutate(SS=sum(suicides_no),SP=sum(population), SOP = SS /SP)
+
+#Same process as the last set, except now for age group
+suicide6 <-suicide5 %>%
+  group_by(year,age)  %>%
+  mutate(SS=sum(suicides_no),SP=sum(population), SOP = SS /SP)
+
+#New dataset to calculate the difference in suicides between each year
+diffs<-suicide5 %>% 
+  group_by(year)  %>%
+  mutate(SS=sum(suicides_no),SP=sum(population),SOP=SS/SP) %>%
+  transform(diff = ave(SS,FUN = function(x) c(NA, diff(x)))) %>%
+  filter(diff!=0)
+diffs4<-suicide
+diffs1<-diffs %>% 
+  filter(year<=2000)
+diffs2<-diffs %>% 
+  filter(year>=2000)
+mod1 <- lm(SOP ~ year, data = diffs1)
+#coef(mod1)
+#summary(mod1)
+grid1 <- diffs1 %>% 
+  data_grid(year,SOP) %>% 
+  add_predictions(mod1)
+mod2 <- lm(SOP ~ year, data = diffs2)
+#coef(mod2)
+#summary(mod2)
+grid2 <- diffs2 %>% 
+  data_grid(year,SOP) %>% 
+  add_predictions(mod2)
+#reading in second dataset of United States unemployment
+unemployed <- read_csv("USUnemployment.csv")
+fun <- function(Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec)
+{ 
+  TU=((Jan+Feb+Mar+Apr+May+Jun+Jul+Aug+Sep+Oct+Nov+Dec)/12)
+  return(TU)
+}
+#Other Dataset only has data for years not months, so each years unemployment is
+#averaged in the TU variable
+unemp1 <- unemployed  %>%
+  mutate(TU= fun(Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec))
+ 
+unemp <- unemp1  %>%
+  select(Year,TU) 
+#Must left join because the diffs dataset starts later than unemp
+#The primary key of each data set is the year
+SuicideUnemp<-diffs%>%
+  left_join(unemp, c("year"="Year"))
+mod3 <- lm(SOP ~ TU, data = SuicideUnemp)
+#coef(mod3)
+#summary(mod3)
+grid3 <- SuicideUnemp %>% 
+  data_grid(TU,SOP) %>% 
+  add_predictions(mod3)
+mod4<- lm(SOP ~ ns(TU, 2), data = SuicideUnemp)
+grid4 <- SuicideUnemp %>%
+  data_grid(TU) %>%
+  add_predictions(mod4)
+#coef(mod4)
+#summary(mod4)
+
+diffs4$gender <- ifelse(diffs4$sex == "male", 1, 0)
+diffs4$old <- ifelse(diffs4$age == "75+ years", 1, 0)
+diffs4$uppermiddle <- ifelse(diffs4$age == "55-74 years", 1, 0)
+diffs4$middle <- ifelse(diffs4$age == "35-54 years", 1, 0)
+diffs4$lowermiddle <- ifelse(diffs4$age == "25-34 years", 1, 0)
+diffs4$young <- ifelse(diffs4$age == "15-24 years", 1, 0)
+mod5 <- lm(SOP ~ year+ gender + old + uppermiddle + middle + lowermiddle + young , data = diffs4)
+#coef(mod5)
+#summary(mod5)
+```
+
+```{r, echo = FALSE}
+knitr::kable(
+  suicide6[1:3,1:9 ], 
+  caption = "Suicide Data"
+)
+knitr::kable(
+  suicide6[1:3,10:15], 
+  caption = "Suicide Data Cont."
+)
+
+knitr::kable(
+  unemp1[1:3,], 
+  caption = "Unemployment Data"
+)
+```
+
+```{r Plot, fig.height=4, results = "hide"}
+ggplot(data = suicide5) + 
+  geom_boxplot(mapping = aes(y=suicides_no))+
+  labs(title="Boxplot for Suicide Totals",y = "Number of Suicides")
+```
+Looking at the variation within the number of suicides per year, it seems there are many outliers spanning from 9000-12000.
+
+```{r Plots1, fig.height=4, results = "hide"}
+ggplot(data=diffs) +
+  geom_point(mapping = aes(x = year, y=SS))+
+  labs(title="Time in years vs. Number of Suicides", x ="Year", y = "# of Suicides")
+```
+
+The number of suicides seems to increase exponentially as time goes on.
+
+```{r Plots2, fig.height=3.4, results = "hide"}
+ggplot(data=diffs1) +
+  geom_point(mapping = aes(x = year, y=SOP))+
+  geom_line(aes(x=year,y = pred), data = grid1, colour = "red", size = 1) +
+  labs(title="Time in years vs. Percentage of Suicides", x ="Year", y = "# of Suicides/Population")
+ggplot(data=diffs2) +
+  geom_point(mapping = aes(x = year, y=SOP))+
+  geom_line(aes(x=year,y = pred), data = grid2, colour = "red", size = 1) +
+  labs(title="Time in years vs. Percentage of Suicides", x ="Year", y = "# of Suicides/Population")
+```
+After seeing a trend before and after 2000 I divided the data set at this point and modeled the Suicides over Population by time to take into account a growing population. For the first graph the equation uses the point at 1985 as the intercept and the second one uses 2000 as the intercept. Both have a very impressive adjusted R-squared. Their models(in order):
+SOP= 0.0002163603 -0.00000159439(year) Adjusted R-squared:  0.8768  
+SOP= .0001118911 +.00000231103(year) Adjusted R-squared:  0.9566                                                                 
+
+
+```{r Plots3, fig.height=3.4, results = "hide"}
+ggplot(data=suicide) +
+  geom_point(mapping = aes(x = year, y=SOP, color=sex))+
+  labs(title="Time in years vs. Percentage of Suicides", x ="Year", y = "# of Suicides/Population")
+```
+
+Suicides percentage over time separated by sex using color.
+
+
+```{r Plots4, fig.height=3.7, results = "hide"}
+ggplot(data=suicide6)+
+  geom_point(mapping = aes(x= year, y=SOP, color= age))+
+  labs(title="Time in years vs. Percentage of Suicides", x ="Year", y = "# of Suicides/Population")
+```
+
+Suicides percentage over time separated by age using color.
+
+```{r Plots5, fig.height=3.7, results = "hide"}
+ggplot(data=diffs) +
+  geom_point(mapping = aes(x = year, y=diff))+
+  annotate("text",x = 2000, y = 260, label = "Y2K",  size = 3)+
+  annotate("text",x = 1999, y = -1200, label = "Columbine",  size = 3)+
+  annotate("text",x = 2001, y = 1350, label = "9/11",  size = 3)+
+  annotate("text",x = 2008, y = 1520, label = "Economic Crisis",  size = 3)+
+  annotate("text",x = 1991, y = 0, label = "Cold War Ends",  size = 3)+
+  labs(title="Time in years vs. Difference in Suicides From Previous Year", x ="Year", y = "Difference in Suicides")
+```
+
+To look at the change in suicides each year to look for certain spikes This graph contains the difference between years of suicides.
+
+```{r Plots, fig.height=4, results = "hide"}
+ggplot(data = suicide) + 
+  geom_point(mapping = aes(x = year, y=suicides_no, color=sex, shape=age))+
+  labs(title="Time in years vs. Number of Suicides", x ="Year", y = "# of Suicides")
+```
+This plot shows suicide data in its entirety. Providing all of its regressors. The created model using indicator variables for age and gender is shown below. Due to its high adjusted R-squared value of 0.9834, each regressor seems to be beneficial.
+Suicides=0.00004860985+1.593787e-09(year)+1.566015e-04(gender)+1.384659e-20(old)-7.855722e-23(uppermiddle)-9.464535e-22(middle)-6.781339e-21(lowermiddle)+5.904542e-23(young)
+
+```{r Plots7, fig.height=3.7, results = "hide"}
+ggplot(data=SuicideUnemp) +
+  geom_point(mapping = aes(x = year, y=TU)) +
+  labs(title="Time in years vs. Unemployment", x ="Year", y = "Unemployment (in percent)")
+```
+
+Graph of second dataset's information showing unemployment per year.
+
+```{r Plots8, fig.height=3.8, results = "hide"}
+ggplot(data=SuicideUnemp) +
+  geom_point(mapping = aes(x = TU, y=SOP)) +
+  geom_smooth(aes(x=TU,y = pred), data = grid4, colour = "red", size = 1) +
+  labs(title="Percentage of Suicides vs. Unemployment Percentage", x ="Unemployment (in percent)", y = "# of Suicides/Population")
+```
+
+Graphing to find correlation between two variables of unemployment and suicide. The graph is of the Best Model using a 2nd degree spline with an adjusted R-squared of 0.3864. The model can be represented by SuicidePercentage = 0.0001079879 + .00000332227(TotalUnemployed).
+Other Models I tried that yielded worse results were the basic linear model with an adjusted R-squared of 0.2562 and a 3rd degree spline with an adjusted R-squared of 0.3655. 
+
+Conclusion:
+I believe I have found many interesting relationships wihin my data. Although it initially seemed that suicides have been on an exponential increase since 1985. Upon further investigation and manipulation of data, I came to a much different conclusion. Suicides were on a consistent decline until the year of 2000, and since then have been on an incline of similar magnitude. Discovering the shocking truth that male suicide rates are far greater than females. On average within this data males are 4 times more likely to commit suicide. After bringing age into play as a factor, my results again came as a surprise. It is often represented in mainstream media today that suicide is a grave problem among the younger generations of people. However, I found that the oppossite is true and that the older a person is, the more likely they are to commit suicide. I found it hard to make generalizations about suicides and significant events from the years, although I do believe there could be a correlation. For instance suicide seemed to go up after the 2008 financial crisis, but taking a look closer into a sector directly affected by this, unemployment did not have the strong correlation that I would have liked. All in all I believe I have found some interesting data that I was able to draw meaningful concclusions from.
+
+Suicide:
+https://www.kaggle.com/russellyates88/suicide-rates-overview-1985-to-2016
+Unemployment:
+https://www.kaggle.com/tunguz/us-monthly-unemployment-rate-1948-present
+
+
+
