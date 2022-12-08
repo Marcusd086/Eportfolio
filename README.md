@@ -17,4 +17,7 @@ Marcus DeKnatel's electronic portfolio
 
 #int Coolness_Percentage = 100;
 
+#int Cell = 9145848352;
+
+#html LinkedIn = www.linkedin.com/in/marcusdeknatel;
 
